@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"runtime"
 	"sort"
 	"strings"
@@ -739,13 +740,52 @@ func checkUpdateAsync() <-chan string {
 				writeCache(latest)
 			}
 		}
-		if latest != "" && latest != Version {
+		if isNewerVersion(latest, Version) {
 			ch <- latest
 		} else {
 			ch <- ""
 		}
 	}()
 	return ch
+}
+
+func isNewerVersion(latest, current string) bool {
+	if latest == "" || current == "" || latest == current {
+		return false
+	}
+
+	latestParts, latestOK := parseSemver(latest)
+	currentParts, currentOK := parseSemver(current)
+	if latestOK && currentOK {
+		for i := range latestParts {
+			if latestParts[i] > currentParts[i] {
+				return true
+			}
+			if latestParts[i] < currentParts[i] {
+				return false
+			}
+		}
+		return false
+	}
+
+	return latest != current
+}
+
+func parseSemver(v string) ([3]int, bool) {
+	var parts [3]int
+	v = strings.TrimSpace(strings.TrimPrefix(v, "v"))
+	chunks := strings.Split(v, ".")
+	if len(chunks) != 3 {
+		return parts, false
+	}
+	for i, chunk := range chunks {
+		n, err := strconv.Atoi(chunk)
+		if err != nil {
+			return parts, false
+		}
+		parts[i] = n
+	}
+	return parts, true
 }
 
 // --- hu update ---

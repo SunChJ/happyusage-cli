@@ -71,4 +71,28 @@ func TestUsageProviderJSONOutput(t *testing.T) {
 	})
 }
 
+func TestIsNewerVersion(t *testing.T) {
+	tests := []struct {
+		name    string
+		latest  string
+		current string
+		want    bool
+	}{
+		{name: "newer patch", latest: "v0.2.1", current: "v0.2.0", want: true},
+		{name: "older cached version", latest: "v0.2.0", current: "v0.2.1", want: false},
+		{name: "same version", latest: "v0.2.1", current: "v0.2.1", want: false},
+		{name: "newer minor", latest: "v0.3.0", current: "v0.2.9", want: true},
+		{name: "non semver fallback equal", latest: "main", current: "main", want: false},
+		{name: "non semver fallback different", latest: "nightly", current: "main", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isNewerVersion(tt.latest, tt.current); got != tt.want {
+				t.Fatalf("isNewerVersion(%q, %q) = %v, want %v", tt.latest, tt.current, got, tt.want)
+			}
+		})
+	}
+}
+
 func numPtr(v float64) *float64 { return &v }

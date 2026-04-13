@@ -52,9 +52,11 @@ hu update
 hu usage                        # all providers, human-friendly
 hu usage <provider>              # single provider
 hu usage list                    # list available provider IDs
-hu usage [provider] --agent      # compact text for AI agents
-hu usage [provider] --json       # structured JSON for web UI
+hu usage [provider] --agent      # compact text for AI agents (recommended for agent use)
+hu usage [provider] --json       # structured JSON for web UI / integrations / debugging
 ```
+
+If you are building or prompting an AI agent, prefer `--agent` by default. Use `--json` only when you explicitly need structured output for integrations, UI rendering, or debugging.
 
 ## Supported providers
 
