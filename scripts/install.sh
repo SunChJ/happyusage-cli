@@ -14,6 +14,20 @@ VERSION="${VERSION:-}"
 info() { printf "\033[1;34m==>\033[0m %s\n" "$1"; }
 error() { printf "\033[1;31merror:\033[0m %s\n" "$1" >&2; exit 1; }
 
+resolve_curl() {
+  for candidate in "${HAPPYUSAGE_CURL:-}" /usr/local/opt/curl/bin/curl /usr/bin/curl "$(command -v curl 2>/dev/null || true)"; do
+    [ -n "$candidate" ] || continue
+    [ -x "$candidate" ] || continue
+    "$candidate" --version >/dev/null 2>&1 && {
+      printf '%s\n' "$candidate"
+      return 0
+    }
+  done
+  return 1
+}
+
+CURL_BIN="$(resolve_curl || true)"
+
 detect_os() {
   case "$(uname -s)" in
     Linux*)  echo "linux" ;;
@@ -32,8 +46,8 @@ detect_arch() {
 }
 
 fetch() {
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$1"
+  if [ -n "$CURL_BIN" ]; then
+    "$CURL_BIN" -fsSL "$1"
   elif command -v wget >/dev/null 2>&1; then
     wget -qO- "$1"
   else
@@ -42,8 +56,8 @@ fetch() {
 }
 
 download() {
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$2" "$1"
+  if [ -n "$CURL_BIN" ]; then
+    "$CURL_BIN" -fsSL -o "$2" "$1"
   else
     wget -qO "$2" "$1"
   fi

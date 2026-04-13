@@ -28,6 +28,12 @@ brew tap SunChJ/happyusage && brew install hu
 curl -fsSL https://raw.githubusercontent.com/SunChJ/happyusage/main/scripts/install.sh | sh
 ```
 
+If your shell exposes a broken `curl` earlier in `PATH`, happyusage now prefers a working system/Homebrew curl automatically. You can also override it explicitly:
+
+```bash
+HAPPYUSAGE_CURL=/usr/bin/curl hu usage codex --agent
+```
+
 **Go**
 
 ```bash

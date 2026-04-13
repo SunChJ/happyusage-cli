@@ -20,6 +20,23 @@ ALL_PROVIDERS="claude codex cursor copilot gemini windsurf"
 # ─── Shared helpers ───
 ts_now() { python3 -c "from datetime import datetime,timezone; print(datetime.now(timezone.utc).isoformat())"; }
 
+resolve_curl() {
+  local candidate
+  for candidate in "${HAPPYUSAGE_CURL:-}" /usr/local/opt/curl/bin/curl /usr/bin/curl "$(command -v curl 2>/dev/null || true)"; do
+    [ -n "$candidate" ] || continue
+    [ -x "$candidate" ] || continue
+    "$candidate" --version >/dev/null 2>&1 && {
+      printf '%s\n' "$candidate"
+      return 0
+    }
+  done
+  return 1
+}
+
+CURL_BIN="$(resolve_curl || true)"
+CURL_OK=false
+[ -n "$CURL_BIN" ] && CURL_OK=true
+
 decode_jwt_payload() {
   local payload
   payload=$(echo "$1" | cut -d. -f2)
@@ -34,6 +51,7 @@ fail_json() { echo "{\"provider\":\"$1\",\"ok\":false,\"error\":\"$2\"}"; }
 #  CLAUDE
 # ════════════════════════════════════════════════════════════
 check_claude_json() {
+  $CURL_OK || { fail_json claude "curl not available"; return; }
   local raw token
   raw=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null || true)
   [ -z "$raw" ] && [ -f "$HOME/.claude/.credentials.json" ] && raw=$(cat "$HOME/.claude/.credentials.json")
@@ -43,7 +61,7 @@ check_claude_json() {
   [ -z "$token" ] && { fail_json claude "failed to parse token"; return; }
 
   local body
-  body=$(curl -sf "https://api.anthropic.com/api/oauth/usage" \
+  body=$("$CURL_BIN" -sf "https://api.anthropic.com/api/oauth/usage" \
     -H "Authorization: Bearer $token" \
     -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null || true)
   [ -z "$body" ] && { fail_json claude "api failed, token may be expired"; return; }
@@ -76,6 +94,7 @@ print(json.dumps(r))
 #  CODEX (OpenAI)
 # ════════════════════════════════════════════════════════════
 check_codex_json() {
+  $CURL_OK || { fail_json codex "curl not available"; return; }
   local auth_file="${CODEX_HOME:-$HOME/.codex}/auth.json"
   [ ! -f "$auth_file" ] && { fail_json codex "auth file not found"; return; }
 
@@ -87,13 +106,13 @@ check_codex_json() {
   account_id=$(decode_jwt_payload "$token" | jq -r '.["https://api.openai.com/auth"].chatgpt_account_id // empty' 2>/dev/null || true)
 
   local http_code
-  http_code=$(curl -s -o /tmp/_cu_codex -w '%{http_code}' "https://chatgpt.com/backend-api/wham/usage" \
+  http_code=$("$CURL_BIN" -s -o /tmp/_cu_codex -w '%{http_code}' "https://chatgpt.com/backend-api/wham/usage" \
     -H "Authorization: Bearer $token" \
     ${account_id:+-H "ChatGPT-Account-Id: $account_id"} 2>/dev/null || echo "000")
 
   if [ "$http_code" = "401" ] && [ -n "$refresh_token" ]; then
     local resp new_token
-    resp=$(curl -s -X POST "https://auth.openai.com/oauth/token" \
+    resp=$("$CURL_BIN" -s -X POST "https://auth.openai.com/oauth/token" \
       -H "Content-Type: application/x-www-form-urlencoded" \
       -d "grant_type=refresh_token&client_id=app_EMoamEEZ73f0CkXaXp7hrann&refresh_token=$refresh_token" 2>/dev/null)
     new_token=$(echo "$resp" | jq -r '.access_token // empty')
@@ -104,7 +123,7 @@ check_codex_json() {
         "$auth_file" > /tmp/_cu_codex_auth && mv /tmp/_cu_codex_auth "$auth_file"
       token="$new_token"
       account_id=$(decode_jwt_payload "$token" | jq -r '.["https://api.openai.com/auth"].chatgpt_account_id // empty' 2>/dev/null || true)
-      http_code=$(curl -s -o /tmp/_cu_codex -w '%{http_code}' "https://chatgpt.com/backend-api/wham/usage" \
+      http_code=$("$CURL_BIN" -s -o /tmp/_cu_codex -w '%{http_code}' "https://chatgpt.com/backend-api/wham/usage" \
         -H "Authorization: Bearer $token" \
         ${account_id:+-H "ChatGPT-Account-Id: $account_id"} 2>/dev/null || echo "000")
     fi

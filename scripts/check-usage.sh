@@ -17,6 +17,23 @@ green() { printf '\033[32m%s\033[0m' "$*"; }
 yellow(){ printf '\033[33m%s\033[0m' "$*"; }
 red()   { printf '\033[31m%s\033[0m' "$*"; }
 
+resolve_curl() {
+  local candidate
+  for candidate in "${HAPPYUSAGE_CURL:-}" /usr/local/opt/curl/bin/curl /usr/bin/curl "$(command -v curl 2>/dev/null || true)"; do
+    [ -n "$candidate" ] || continue
+    [ -x "$candidate" ] || continue
+    "$candidate" --version >/dev/null 2>&1 && {
+      printf '%s\n' "$candidate"
+      return 0
+    }
+  done
+  return 1
+}
+
+CURL_BIN="$(resolve_curl || true)"
+CURL_OK=false
+[ -n "$CURL_BIN" ] && CURL_OK=true
+
 bar() {
   local pct=$1 width=30
   local filled=$(( pct * width / 100 ))
@@ -72,6 +89,7 @@ decode_jwt_payload() {
 
 # ─── Claude ───
 check_claude() {
+  $CURL_OK || { echo "  $(red '✗') curl not available"; return 1; }
   bold "Claude"; echo ""
 
   # 1) get token: try keychain, fallback to file
@@ -93,7 +111,7 @@ check_claude() {
 
   # 2) fetch usage
   local body
-  body=$(curl -sf "$CLAUDE_USAGE_URL" \
+  body=$("$CURL_BIN" -sf "$CLAUDE_USAGE_URL" \
     -H "Authorization: Bearer $token" \
     -H "anthropic-beta: oauth-2025-04-20" 2>/dev/null || true)
 
@@ -145,6 +163,7 @@ check_claude() {
 
 # ─── Codex ───
 check_codex() {
+  $CURL_OK || { echo "  $(red '✗') curl not available"; return 1; }
   bold "Codex"; echo ""
 
   if [ ! -f "$CODEX_AUTH" ]; then
@@ -166,7 +185,7 @@ check_codex() {
 
   # 1) try fetch
   local body http_code
-  http_code=$(curl -s -o /tmp/_codex_body -w '%{http_code}' "$CODEX_USAGE_URL" \
+  http_code=$("$CURL_BIN" -s -o /tmp/_codex_body -w '%{http_code}' "$CODEX_USAGE_URL" \
     -H "Authorization: Bearer $token" \
     ${account_id:+-H "ChatGPT-Account-Id: $account_id"} 2>/dev/null || echo "000")
   body=$(cat /tmp/_codex_body 2>/dev/null || true)
@@ -174,7 +193,7 @@ check_codex() {
   # 2) if 401, refresh and retry
   if [ "$http_code" = "401" ] && [ -n "$refresh_token" ]; then
     local refresh_resp new_token
-    refresh_resp=$(curl -s -X POST "$CODEX_REFRESH_URL" \
+    refresh_resp=$("$CURL_BIN" -s -X POST "$CODEX_REFRESH_URL" \
       -H "Content-Type: application/x-www-form-urlencoded" \
       -d "grant_type=refresh_token&client_id=$CODEX_CLIENT_ID&refresh_token=$refresh_token" 2>/dev/null)
     new_token=$(echo "$refresh_resp" | jq -r '.access_token // empty')
@@ -191,7 +210,7 @@ check_codex() {
       token="$new_token"
       account_id=$(decode_jwt_payload "$token" | jq -r '.["https://api.openai.com/auth"].chatgpt_account_id // empty' 2>/dev/null || true)
 
-      http_code=$(curl -s -o /tmp/_codex_body -w '%{http_code}' "$CODEX_USAGE_URL" \
+      http_code=$("$CURL_BIN" -s -o /tmp/_codex_body -w '%{http_code}' "$CODEX_USAGE_URL" \
         -H "Authorization: Bearer $token" \
         ${account_id:+-H "ChatGPT-Account-Id: $account_id"} 2>/dev/null || echo "000")
       body=$(cat /tmp/_codex_body 2>/dev/null || true)
