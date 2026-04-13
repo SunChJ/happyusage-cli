@@ -77,3 +77,76 @@ jobs:
         with:
           files: artifacts/*
           generate_release_notes: true
+
+  update-homebrew:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: SunChJ/homebrew-happyusage
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      - name: Download checksums
+        run: |
+          gh release download "${{ github.ref_name }}" \
+            --repo SunChJ/happyusage \
+            --pattern checksums.txt \
+            --output checksums.txt
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Update formula
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          SHA_DARWIN_ARM64="$(grep darwin-arm64 checksums.txt | awk '{print $1}')"
+          SHA_DARWIN_AMD64="$(grep darwin-amd64 checksums.txt | awk '{print $1}')"
+          SHA_LINUX_ARM64="$(grep linux-arm64 checksums.txt | awk '{print $1}')"
+          SHA_LINUX_AMD64="$(grep linux-amd64 checksums.txt | awk '{print $1}')"
+
+          cat > Formula/hu.rb << FORMULA
+          class Hu < Formula
+            desc "A tiny cross-platform CLI for checking local AI tool usage"
+            homepage "https://github.com/SunChJ/happyusage"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/SunChJ/happyusage/releases/download/v#{version}/hu-darwin-arm64.tar.gz"
+                sha256 "${SHA_DARWIN_ARM64}"
+              elsif Hardware::CPU.intel?
+                url "https://github.com/SunChJ/happyusage/releases/download/v#{version}/hu-darwin-amd64.tar.gz"
+                sha256 "${SHA_DARWIN_AMD64}"
+              end
+            end
+
+            on_linux do
+              if Hardware::CPU.arm?
+                url "https://github.com/SunChJ/happyusage/releases/download/v#{version}/hu-linux-arm64.tar.gz"
+                sha256 "${SHA_LINUX_ARM64}"
+              elsif Hardware::CPU.intel?
+                url "https://github.com/SunChJ/happyusage/releases/download/v#{version}/hu-linux-amd64.tar.gz"
+                sha256 "${SHA_LINUX_AMD64}"
+              end
+            end
+
+            def install
+              bin.install "hu"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/hu version")
+            end
+          end
+          FORMULA
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' Formula/hu.rb
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/hu.rb
+          git commit -m "update hu to ${GITHUB_REF_NAME}"
+          git push
