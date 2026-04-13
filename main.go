@@ -126,6 +126,11 @@ var (
 	claudeUsageURL       = "https://api.anthropic.com/api/oauth/usage"
 	claudeKeychainSvc    = "Claude Code-credentials"
 	claudeBetaHeader     = "oauth-2025-04-20"
+	cursorTokenURL       = "https://api2.cursor.sh/oauth/token"
+	cursorClientID       = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB"
+	cursorUsageURL       = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
+	cursorPlanURL        = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo"
+	cursorCreditsURL     = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCreditGrantsBalance"
 	geminiLoadURL        = "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
 	geminiQuotaURL       = "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota"
 	geminiTokenURL       = "https://oauth2.googleapis.com/token"
@@ -362,6 +367,12 @@ func collectUsageHybrid(targets []string) ([]providerUsage, error) {
 			results = append(results, result)
 		case "gemini":
 			result, err := collectGeminiUsage()
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, result)
+		case "cursor":
+			result, err := collectCursorUsage()
 			if err != nil {
 				return nil, err
 			}
@@ -628,6 +639,169 @@ func decodeClaudeUsage(raw map[string]any) providerUsage {
 		}
 	}
 	return result
+}
+
+func collectCursorUsage() (providerUsage, error) {
+	dbPath := filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb")
+	if _, err := os.Stat(dbPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return providerUsage{Provider: "cursor", OK: false, Error: "not installed"}, nil
+		}
+		return providerUsage{}, err
+	}
+	token, err := sqliteValue(dbPath, "SELECT value FROM ItemTable WHERE key='cursorAuth/accessToken' LIMIT 1")
+	if err != nil {
+		return providerUsage{}, err
+	}
+	refreshToken, err := sqliteValue(dbPath, "SELECT value FROM ItemTable WHERE key='cursorAuth/refreshToken' LIMIT 1")
+	if err != nil {
+		return providerUsage{}, err
+	}
+	if token == "" && refreshToken == "" {
+		return providerUsage{Provider: "cursor", OK: false, Error: "not logged in"}, nil
+	}
+	if cursorTokenNeedsRefresh(token) && refreshToken != "" {
+		if newToken, err := refreshCursorToken(refreshToken); err == nil && newToken != "" {
+			token = newToken
+		}
+	}
+	if token == "" {
+		return providerUsage{Provider: "cursor", OK: false, Error: "no valid token"}, nil
+	}
+	usage, err := doCursorPOST(cursorUsageURL, token)
+	if err != nil {
+		return providerUsage{Provider: "cursor", OK: false, Error: "parse failed"}, nil
+	}
+	plan, err := doCursorPOST(cursorPlanURL, token)
+	if err != nil {
+		return providerUsage{Provider: "cursor", OK: false, Error: "parse failed"}, nil
+	}
+	credits, err := doCursorPOST(cursorCreditsURL, token)
+	if err != nil {
+		return providerUsage{Provider: "cursor", OK: false, Error: "parse failed"}, nil
+	}
+	return decodeCursorUsage(usage, plan, credits), nil
+}
+
+func sqliteValue(dbPath, query string) (string, error) {
+	cmd := exec.Command("sqlite3", dbPath, query)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", nil
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func cursorTokenNeedsRefresh(token string) bool {
+	payload := parseJWTPayload(token)
+	exp, ok := numberValue(payload["exp"])
+	if !ok || exp <= 0 {
+		return token == ""
+	}
+	return int64(exp) < time.Now().Add(5*time.Minute).Unix()
+}
+
+func refreshCursorToken(refreshToken string) (string, error) {
+	payload := map[string]any{"grant_type": "refresh_token", "client_id": cursorClientID, "refresh_token": refreshToken}
+	bodyBytes, _ := json.Marshal(payload)
+	req, err := http.NewRequest(http.MethodPost, cursorTokenURL, strings.NewReader(string(bodyBytes)))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", err
+	}
+	return stringField(raw, "access_token"), nil
+}
+
+func doCursorPOST(endpoint, token string) (map[string]any, error) {
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader("{}"))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Connect-Protocol-Version", "1")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func decodeCursorUsage(usage, planData, creditsData map[string]any) providerUsage {
+	result := providerUsage{Provider: "cursor", OK: true, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+	if plan := stringField(nestedMap(planData, "planInfo"), "planName"); plan != "" {
+		result.Plan = plan
+	}
+	pu := nestedMap(usage, "planUsage")
+	if tp, ok := numberValue(pu["totalPercentUsed"]); ok {
+		left := math.Round((100-tp)*10) / 10
+		q := quota{Name: "total", Period: "monthly", UsedPct: &tp, LeftPct: &left}
+		if cycleEnd, ok := numberValue(usage["billingCycleEnd"]); ok {
+			q.ResetsAt = time.UnixMilli(int64(cycleEnd)).UTC().Format(time.RFC3339)
+		}
+		result.Quotas = append(result.Quotas, q)
+	} else if limit, ok := numberValue(pu["limit"]); ok && limit > 0 {
+		spend, _ := numberValue(pu["totalSpend"])
+		usedPct := math.Round((spend/limit*100)*10) / 10
+		leftPct := math.Round((100-usedPct)*10) / 10
+		usedUSD := math.Round((spend/100)*100) / 100
+		limitUSD := math.Round((limit/100)*100) / 100
+		result.Quotas = append(result.Quotas, quota{Name: "total", Period: "monthly", UsedPct: &usedPct, LeftPct: &leftPct, UsedDollars: &usedUSD, LimitDollars: &limitUSD})
+	}
+	for _, cfg := range []struct{ Key, Name string }{{"autoPercentUsed", "auto"}, {"apiPercentUsed", "api"}} {
+		if used, ok := numberValue(pu[cfg.Key]); ok {
+			left := math.Round((100-used)*10) / 10
+			result.Quotas = append(result.Quotas, quota{Name: cfg.Name, Period: "monthly", UsedPct: &used, LeftPct: &left})
+		}
+	}
+	if has, _ := creditsData["hasCreditGrants"].(bool); has {
+		totalC, tok := numberValue(creditsData["totalCents"])
+		usedC, uok := numberValue(creditsData["usedCents"])
+		if tok && uok && totalC > 0 {
+			result.Credits = map[string]any{
+				"total_usd": math.Round(totalC) / 100,
+				"used_usd":  math.Round(usedC) / 100,
+				"left_usd":  math.Round(totalC-usedC) / 100,
+			}
+		}
+	}
+	return result
+}
+
+func parseJWTPayload(token string) map[string]any {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil
+	}
+	var raw map[string]any
+	_ = json.Unmarshal(payload, &raw)
+	return raw
 }
 
 func collectGeminiUsage() (providerUsage, error) {

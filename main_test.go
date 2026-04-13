@@ -130,6 +130,29 @@ func TestDecodeClaudeUsage(t *testing.T) {
 	}
 }
 
+func TestDecodeCursorUsage(t *testing.T) {
+	usage := map[string]any{
+		"billingCycleEnd": float64(1893456000000),
+		"planUsage": map[string]any{
+			"totalPercentUsed": float64(35),
+			"autoPercentUsed":  float64(15),
+			"apiPercentUsed":   float64(45),
+		},
+	}
+	plan := map[string]any{"planInfo": map[string]any{"planName": "Pro"}}
+	credits := map[string]any{"hasCreditGrants": true, "totalCents": float64(2000), "usedCents": float64(500)}
+	got := decodeCursorUsage(usage, plan, credits)
+	if !got.OK || got.Provider != "cursor" || got.Plan != "Pro" {
+		t.Fatalf("unexpected result: %+v", got)
+	}
+	if len(got.Quotas) != 3 {
+		t.Fatalf("expected 3 quotas, got %+v", got.Quotas)
+	}
+	if got.Credits == nil || got.Credits["left_usd"] != 15.0 {
+		t.Fatalf("unexpected credits: %+v", got.Credits)
+	}
+}
+
 func TestDecodeGeminiUsage(t *testing.T) {
 	loadBody := map[string]any{"subscriptionTier": "standard-tier", "nested": map[string]any{"cloudaicompanionProject": "p1"}}
 	quotaBody := map[string]any{
