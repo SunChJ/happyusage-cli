@@ -352,30 +352,31 @@ func readNumberPtr(v any) *float64 {
 }
 
 func (a app) printHelp() {
-	fmt.Fprintf(a.stdout, "hu — local AI usage checker\n\n")
+	fmt.Fprintf(a.stdout, "hu (happyusage) — check your AI provider usage, worry less\n\n")
 	fmt.Fprintf(a.stdout, "Usage:\n")
-	fmt.Fprintf(a.stdout, "  %s help\n", a.progName)
-	fmt.Fprintf(a.stdout, "  %s version\n", a.progName)
-	fmt.Fprintf(a.stdout, "  %s usage\n", a.progName)
-	fmt.Fprintf(a.stdout, "  %s usage list\n", a.progName)
-	fmt.Fprintf(a.stdout, "  %s usage <providerId> [--agent] [--json]\n\n", a.progName)
-	fmt.Fprintf(a.stdout, "Commands:\n")
-	fmt.Fprintf(a.stdout, "  help       Show help\n")
-	fmt.Fprintf(a.stdout, "  version    Show version\n")
-	fmt.Fprintf(a.stdout, "  usage      Show configured provider usage\n")
+	fmt.Fprintf(a.stdout, "  %s usage [provider] [--agent|--json]\n\n", a.progName)
+	fmt.Fprintf(a.stdout, "Examples:\n")
+	fmt.Fprintf(a.stdout, "  %s usage                        show all providers\n", a.progName)
+	fmt.Fprintf(a.stdout, "  %s usage claude                  show a single provider\n", a.progName)
+	fmt.Fprintf(a.stdout, "  %s usage list                    list available provider IDs\n", a.progName)
+	fmt.Fprintf(a.stdout, "  %s usage --agent                 compact text for AI agents\n", a.progName)
+	fmt.Fprintf(a.stdout, "  %s usage --json                  structured JSON for web UI\n", a.progName)
+	fmt.Fprintf(a.stdout, "  %s usage claude --agent          single provider, agent format\n\n", a.progName)
+	fmt.Fprintf(a.stdout, "Other:\n")
+	fmt.Fprintf(a.stdout, "  %s help [command]                show help\n", a.progName)
+	fmt.Fprintf(a.stdout, "  %s version                       show version\n\n", a.progName)
+	fmt.Fprintf(a.stdout, "Providers: claude, codex, cursor, copilot, gemini, windsurf\n")
 }
 
 func (a app) printUsageHelp() {
-	fmt.Fprintf(a.stdout, "hu usage — inspect configured provider usage\n\n")
+	fmt.Fprintf(a.stdout, "hu usage — check provider usage quotas and reset times\n\n")
 	fmt.Fprintf(a.stdout, "Usage:\n")
-	fmt.Fprintf(a.stdout, "  %s usage\n", a.progName)
-	fmt.Fprintf(a.stdout, "  %s usage list\n", a.progName)
-	fmt.Fprintf(a.stdout, "  %s usage <providerId>\n", a.progName)
-	fmt.Fprintf(a.stdout, "  %s usage <providerId> --agent\n", a.progName)
-	fmt.Fprintf(a.stdout, "  %s usage <providerId> --json\n\n", a.progName)
+	fmt.Fprintf(a.stdout, "  %s usage                        show all providers\n", a.progName)
+	fmt.Fprintf(a.stdout, "  %s usage <provider>              show a single provider\n", a.progName)
+	fmt.Fprintf(a.stdout, "  %s usage list                    list available provider IDs\n\n", a.progName)
 	fmt.Fprintf(a.stdout, "Flags:\n")
-	fmt.Fprintf(a.stdout, "  --agent    compact agent-friendly text\n")
-	fmt.Fprintf(a.stdout, "  --json     JSON envelope\n")
+	fmt.Fprintf(a.stdout, "  --agent    compact text for AI agents\n")
+	fmt.Fprintf(a.stdout, "  --json     structured JSON for web UI\n")
 }
 
 func (a app) printHumanProviders(providers []providerUsage) {

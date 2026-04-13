@@ -21,7 +21,7 @@ func TestMainWithNoArgsShowsHelp(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("expected exit 0, got %d", exitCode)
 	}
-	if !strings.Contains(stdout.String(), "hu — local AI usage checker") {
+	if !strings.Contains(stdout.String(), "Usage:") {
 		t.Fatalf("unexpected help output: %s", stdout.String())
 	}
 }
