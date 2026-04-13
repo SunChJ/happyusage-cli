@@ -1,39 +1,11 @@
 # happyusage-cli
 
-Tiny cross-platform CLI for querying your AI tool usage from local provider usage snapshots.
+Tiny cross-platform CLI for checking local AI tool usage.
 
-It is designed for two audiences:
+它分成两层：
 
-- **humans** — readable terminal output
-- **agents** — stable JSON output with normalized fields
-
-This repo is intentionally lightweight:
-
-- **Go only, stdlib only**
-- single binary
-- works on **macOS / Linux / Windows**
-- **macOS-first** because the macOS workflow is the smoothest today
-
-## Why this exists
-
-The underlying local collector already does the hard part well:
-
-- reads local auth state
-- refreshes tokens when needed
-- talks to provider-specific private APIs
-- normalizes usage into one local HTTP API
-
-This CLI focuses on the last mile:
-
-- a small binary that Hermes agents can call safely
-- agent-friendly JSON
-- human-friendly text mode
-- future path to native provider probing when the local collector is unavailable
-
-The initial version talks to a local HTTP usage API:
-
-- `GET http://127.0.0.1:6736/v1/usage`
-- `GET http://127.0.0.1:6736/v1/usage/:providerId`
+- **human**：默认可读、带一点可视化
+- **agent**：`--agent` 精简文本，`--json` 结构化输出
 
 ## Install
 
@@ -55,40 +27,81 @@ go install github.com/SunChJ/happyusage-cli/cmd/hu@latest
 go build -o bin/hu ./cmd/hu
 ```
 
-## Usage
+## Commands
 
-### Human-readable
+直接输入：
 
 ```bash
 hu
-hu codex
-hu --command health
 ```
 
-### Agent-friendly JSON
+会显示帮助。
+
+### Help
 
 ```bash
-hu --json
-hu --json claude
-hu --json --command providers
+hu help
+hu help usage
 ```
 
-### Custom API address
+### Version
 
 ```bash
-hu --base-url http://127.0.0.1:6736 --json
+hu version
 ```
 
-## Commands
+### Usage
 
-- `get` — default; fetch all providers or one provider
-- `providers` — fetch all providers
-- `health` — simple API liveness check
-- `version` — print version
+默认展示所有已配置 provider 的人类可读用量视图：
 
-## Output shape
+```bash
+hu usage
+```
 
-JSON mode returns a normalized envelope like:
+列出当前可读到的 providerId：
+
+```bash
+hu usage list
+```
+
+查看单个 provider：
+
+```bash
+hu usage claude
+hu usage codex
+```
+
+agent 友好精简文本：
+
+```bash
+hu usage claude --agent
+```
+
+JSON 输出：
+
+```bash
+hu usage claude --json
+hu usage --json
+hu usage list --json
+```
+
+### Flags
+
+```bash
+--base-url   custom local API base URL
+--timeout    HTTP timeout
+--agent      compact agent-friendly text
+--json       JSON envelope
+```
+
+## Data source
+
+当前版本默认从本地 usage HTTP API 读取：
+
+- `GET http://127.0.0.1:6736/v1/usage`
+- `GET http://127.0.0.1:6736/v1/usage/:providerId`
+
+## Example JSON
 
 ```json
 {
@@ -96,58 +109,45 @@ JSON mode returns a normalized envelope like:
   "source": "local_usage_http_api",
   "base_url": "http://127.0.0.1:6736",
   "checked_at": "2026-04-13T03:00:00Z",
-  "providers": [
-    {
-      "provider_id": "codex",
-      "display_name": "Codex",
-      "plan": "Plus",
-      "progress": [
-        {
-          "label": "Session",
-          "used": 1,
-          "limit": 100,
-          "remaining": 99,
-          "percent_used": 1,
-          "unit": "percent"
-        }
-      ],
-      "texts": [],
-      "badges": []
-    }
-  ]
+  "provider": {
+    "provider_id": "claude",
+    "display_name": "Claude",
+    "plan": "Pro",
+    "progress": [
+      {
+        "label": "Session",
+        "used": 25,
+        "limit": 100,
+        "remaining": 75,
+        "percent_used": 25,
+        "unit": "percent"
+      }
+    ],
+    "texts": [
+      {
+        "label": "Today",
+        "value": "$2.10 · 3M tokens"
+      }
+    ]
+  }
 }
 ```
-
-## Provider roadmap
-
-This project is informed by two shell scripts extracted from real usage work:
-
-- `check-usage.sh` — human-friendly display
-- `check-usage-agent.sh` — agent-friendly JSON
-
-Those scripts already capture useful provider knowledge for:
-
-- Claude
-- Codex
-- Cursor
-- Copilot
-- Gemini
-- Windsurf
-
-Planned evolution:
-
-1. **Stage 1** — thin local usage API client ✅
-2. **Stage 2** — optional native fallback probes for key providers
-3. **Stage 3** — packaged releases for macOS / Linux / Windows
-4. **Stage 4** — Homebrew tap first, then Scoop / winget
 
 ## Development
 
 ```bash
 go test ./...
-go run ./cmd/hu --json
-go run ./cmd/hu codex
+go run ./cmd/hu
+go run ./cmd/hu usage
+go run ./cmd/hu usage claude --agent
+go run ./cmd/hu usage claude --json
 ```
+
+## Roadmap
+
+- native provider fallback probes
+- release binaries for macOS / Linux / Windows
+- Homebrew first, then Scoop / winget
 
 ## License
 
