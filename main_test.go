@@ -101,6 +101,34 @@ func TestIsNewerVersion(t *testing.T) {
 	}
 }
 
+func TestExtractClaudeAccessToken(t *testing.T) {
+	raw := `{"claudeAiOauth":{"accessToken":"claude-token"}}`
+	if got := extractClaudeAccessToken(raw); got != "claude-token" {
+		t.Fatalf("unexpected token: %q", got)
+	}
+}
+
+func TestDecodeClaudeUsage(t *testing.T) {
+	raw := map[string]any{
+		"five_hour": map[string]any{"utilization": float64(33), "resets_at": "2030-01-01T00:00:00Z"},
+		"seven_day": map[string]any{"utilization": float64(55), "resets_at": "2030-01-02T00:00:00Z"},
+		"extra_usage": map[string]any{"is_enabled": true, "used_credits": float64(12.5), "monthly_limit": float64(50)},
+	}
+	got := decodeClaudeUsage(raw)
+	if !got.OK || got.Provider != "claude" {
+		t.Fatalf("unexpected result: %+v", got)
+	}
+	if len(got.Quotas) != 2 {
+		t.Fatalf("expected 2 quotas, got %+v", got.Quotas)
+	}
+	if got.Quotas[0].Name != "session" || got.Quotas[0].LeftPct == nil || *got.Quotas[0].LeftPct != 67 {
+		t.Fatalf("unexpected session quota: %+v", got.Quotas[0])
+	}
+	if got.ExtraUsage == nil || got.ExtraUsage["enabled"] != true {
+		t.Fatalf("unexpected extra usage: %+v", got.ExtraUsage)
+	}
+}
+
 func TestDecodeCodexUsage(t *testing.T) {
 	raw := map[string]any{
 		"plan_type": "plus",

@@ -122,12 +122,15 @@ type codexAuthFile struct {
 }
 
 var (
-	collectUsageFn     = collectUsageHybrid
-	codexUsageURL      = "https://chatgpt.com/backend-api/wham/usage"
-	codexTokenURL      = "https://auth.openai.com/oauth/token"
-	codexOAuthClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
-	httpClient         = &http.Client{Timeout: 15 * time.Second}
-	allProviders       = []string{"claude", "codex", "cursor", "copilot", "gemini", "windsurf"}
+	collectUsageFn       = collectUsageHybrid
+	claudeUsageURL       = "https://api.anthropic.com/api/oauth/usage"
+	claudeKeychainSvc    = "Claude Code-credentials"
+	claudeBetaHeader     = "oauth-2025-04-20"
+	codexUsageURL        = "https://chatgpt.com/backend-api/wham/usage"
+	codexTokenURL        = "https://auth.openai.com/oauth/token"
+	codexOAuthClientID   = "app_EMoamEEZ73f0CkXaXp7hrann"
+	httpClient           = &http.Client{Timeout: 15 * time.Second}
+	allProviders         = []string{"claude", "codex", "cursor", "copilot", "gemini", "windsurf"}
 )
 
 func Main(progName string, args []string) int {
@@ -336,6 +339,12 @@ func collectUsageHybrid(targets []string) ([]providerUsage, error) {
 		}
 		seen[target] = true
 		switch target {
+		case "claude":
+			result, err := collectClaudeUsage()
+			if err != nil {
+				return nil, err
+			}
+			results = append(results, result)
 		case "codex":
 			result, err := collectCodexUsage()
 			if err != nil {
@@ -488,6 +497,122 @@ func readNumberPtr(v any) *float64 {
 	default:
 		return nil
 	}
+}
+
+func collectClaudeUsage() (providerUsage, error) {
+	raw, err := readClaudeCredentials()
+	if err != nil {
+		return providerUsage{}, err
+	}
+	if raw == "" {
+		return providerUsage{Provider: "claude", OK: false, Error: "no credentials found"}, nil
+	}
+
+	token := extractClaudeAccessToken(raw)
+	if token == "" {
+		return providerUsage{Provider: "claude", OK: false, Error: "failed to parse token"}, nil
+	}
+
+	body, err := doClaudeUsageRequest(token)
+	if err != nil {
+		return providerUsage{Provider: "claude", OK: false, Error: err.Error()}, nil
+	}
+	return decodeClaudeUsage(body), nil
+}
+
+func readClaudeCredentials() (string, error) {
+	cmd := exec.Command("security", "find-generic-password", "-s", claudeKeychainSvc, "-w")
+	out, err := cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(string(out)), nil
+	}
+	credPath := filepath.Join(os.Getenv("HOME"), ".claude", ".credentials.json")
+	data, readErr := os.ReadFile(credPath)
+	if readErr == nil {
+		return string(data), nil
+	}
+	if errors.Is(readErr, os.ErrNotExist) {
+		return "", nil
+	}
+	return "", readErr
+}
+
+func extractClaudeAccessToken(raw string) string {
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return ""
+	}
+	oauth, _ := parsed["claudeAiOauth"].(map[string]any)
+	if oauth == nil {
+		return ""
+	}
+	token, _ := oauth["accessToken"].(string)
+	return token
+}
+
+func doClaudeUsageRequest(token string) (map[string]any, error) {
+	req, err := http.NewRequest(http.MethodGet, claudeUsageURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("anthropic-beta", claudeBetaHeader)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("api failed, token may be expired")
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parse failed: %w", err)
+	}
+	return raw, nil
+}
+
+func decodeClaudeUsage(raw map[string]any) providerUsage {
+	result := providerUsage{
+		Provider:  "claude",
+		OK:        true,
+		CheckedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	for _, cfg := range []struct {
+		Key    string
+		Name   string
+		Period string
+	}{
+		{Key: "five_hour", Name: "session", Period: "5h"},
+		{Key: "seven_day", Name: "weekly", Period: "7d"},
+		{Key: "seven_day_sonnet", Name: "sonnet_weekly", Period: "7d"},
+		{Key: "seven_day_opus", Name: "opus_weekly", Period: "7d"},
+	} {
+		window := nestedMap(raw, cfg.Key)
+		used, ok := numberValue(window["utilization"])
+		if !ok {
+			continue
+		}
+		left := math.Round((100-used)*10) / 10
+		q := quota{Name: cfg.Name, Period: cfg.Period, UsedPct: &used, LeftPct: &left}
+		if resetAt, _ := window["resets_at"].(string); resetAt != "" {
+			q.ResetsAt = resetAt
+		}
+		result.Quotas = append(result.Quotas, q)
+	}
+	extra := nestedMap(raw, "extra_usage")
+	if enabled, _ := extra["is_enabled"].(bool); enabled {
+		result.ExtraUsage = map[string]any{
+			"enabled":   true,
+			"used_usd":  extra["used_credits"],
+			"limit_usd": extra["monthly_limit"],
+		}
+	}
+	return result
 }
 
 func collectCodexUsage() (providerUsage, error) {
