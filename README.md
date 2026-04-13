@@ -10,6 +10,9 @@ Check your AI tool usage from the terminal. Built for humans and agents.
 
 ```bash
 brew tap SunChJ/happyusage && brew install hu
+
+# upgrade
+brew update && brew upgrade hu
 ```
 
 **Shell script** (macOS / Linux)
