@@ -63,6 +63,41 @@ type app struct {
 	stderr   io.Writer
 }
 
+type spinner struct {
+	w      io.Writer
+	stop   chan struct{}
+	done   chan struct{}
+}
+
+func newSpinner(w io.Writer) *spinner {
+	s := &spinner{w: w, stop: make(chan struct{}), done: make(chan struct{})}
+	go s.run()
+	return s
+}
+
+func (s *spinner) run() {
+	defer close(s.done)
+	frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	i := 0
+	ticker := time.NewTicker(80 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stop:
+			fmt.Fprintf(s.w, "\r\033[K")
+			return
+		case <-ticker.C:
+			fmt.Fprintf(s.w, "\r%s Fetching usage...", frames[i%len(frames)])
+			i++
+		}
+	}
+}
+
+func (s *spinner) Stop() {
+	close(s.stop)
+	<-s.done
+}
+
 type usageOptions struct {
 	JSON   bool
 	Agent  bool
@@ -140,12 +175,22 @@ func parseUsageArgs(args []string) (usageOptions, error) {
 	return opts, nil
 }
 
+func (a app) showSpinner(opts usageOptions) func() {
+	if opts.Agent || opts.JSON {
+		return func() {}
+	}
+	s := newSpinner(a.stderr)
+	return s.Stop
+}
+
 func (a app) runUsage(opts usageOptions) int {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	switch opts.Action {
 	case "provider":
+		stop := a.showSpinner(opts)
 		results, err := collectUsageFn([]string{opts.Target})
+		stop()
 		if err != nil {
 			return a.renderUsageError(opts, err)
 		}
@@ -170,7 +215,9 @@ func (a app) runUsage(opts usageOptions) int {
 		a.printHumanProviders([]providerUsage{provider})
 		return 0
 	case "list":
+		stop := a.showSpinner(opts)
 		results, err := collectUsageFn(nil)
+		stop()
 		if err != nil {
 			return a.renderUsageError(opts, err)
 		}
@@ -184,7 +231,9 @@ func (a app) runUsage(opts usageOptions) int {
 		}
 		return 0
 	default:
+		stop := a.showSpinner(opts)
 		results, err := collectUsageFn(nil)
+		stop()
 		if err != nil {
 			return a.renderUsageError(opts, err)
 		}
