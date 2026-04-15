@@ -1678,7 +1678,7 @@ func (a app) printHumanProviders(providers []providerUsage) {
 			fmt.Fprintf(a.stdout, "  plan      %s\n", provider.Plan)
 		}
 		for _, q := range provider.Quotas {
-			fmt.Fprintf(a.stdout, "  %-9s %s %s left", q.Name, progressBar(q.UsedPct), percentString(q.LeftPct))
+			fmt.Fprintf(a.stdout, "  %-9s %s %s left", q.Name, progressBar(q.LeftPct), percentString(q.LeftPct))
 			if q.Remaining != nil && q.Total != nil {
 				fmt.Fprintf(a.stdout, "  %.0f/%.0f", *q.Remaining, *q.Total)
 			}
